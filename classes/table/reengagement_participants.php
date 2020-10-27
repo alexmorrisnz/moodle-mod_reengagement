@@ -25,7 +25,7 @@
 
 namespace mod_reengagement\table;
 
-use \context;
+use context;
 use context_module;
 use core_table\dynamic as dynamic_table;
 use core_table\local\filter\filterset;
@@ -48,13 +48,16 @@ require_once($CFG->dirroot . '/user/lib.php');
  * @author     Dan Marsden <Dan@danmarsden.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class participants extends \table_sql implements dynamic_table {
+class reengagement_participants extends \table_sql implements dynamic_table {
 
     /**
      * @var \stdclass $reengagement The reengagement record
      */
     protected $reengagement;
 
+    /**
+     * @var int $cmid The course module id
+     */
     protected $cmid;
 
     /**
@@ -449,7 +452,7 @@ class participants extends \table_sql implements dynamic_table {
         global $DB;
 
         list($twhere, $tparams) = $this->get_sql_where();
-        $psearch = new \mod_reengagement\table\participants_search($this->course, $this->context, $this->filterset);
+        $psearch = new \mod_reengagement\table\reengagement_search($this->course, $this->context, $this->filterset);
 
         $total = $psearch->get_total_participants_count($twhere, $tparams);
 
@@ -534,4 +537,3 @@ class participants extends \table_sql implements dynamic_table {
         return $this->context;
     }
 }
-
