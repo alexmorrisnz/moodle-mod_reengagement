@@ -521,7 +521,7 @@ function reengagement_email_user($reengagement, $inprogress) {
 /**
  * Send reengagement notifications using the messaging system.
  *
- * @param object $user
+ * @param object $userto User we are sending the notification to
  * @param string $subject message subject
  * @param string $messageplain plain text message
  * @param string $messagehtml html message
