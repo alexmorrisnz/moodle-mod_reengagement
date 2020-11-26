@@ -168,18 +168,6 @@ function reengagement_get_completion_state($course, $cm, $userid, $type) {
 }
 
 /**
- * Prints the recent activity.
- *
- * @param stdClass $course
- * @param stdClass $isteacher
- * @param stdClass $timestart
- */
-function reengagement_print_recent_activity($course, $isteacher, $timestart) {
-    return false;  // True if anything was printed, otherwise false.
-}
-
-
-/**
  * Function to be run periodically according to the moodle cron
  * * Add users who can start this module to the 'reengagement_inprogress' table
  *   and add an entry to the activity completion table to indicate that they have started
