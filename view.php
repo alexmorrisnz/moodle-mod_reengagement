@@ -103,227 +103,57 @@ if ($canstart) {
 }
 
 if ($canedit) {
-    $task = \core\task\manager::get_scheduled_task('\mod_reengagement\task\cron_task');
-    $lastrun = $task->get_last_run_time();
-    if ($lastrun < time() - 3600) { // Check if cron run in last 60min.
-        echo $OUTPUT->notification(get_string('cronwarning', 'reengagement'));
-    }
+    // User is able to see admin-type features of this plugin - ie not just their own re-engagement status.
+    $sql = "SELECT *
+              FROM {reengagement_inprogress} rip
+        INNER JOIN {user} u ON u.id = rip.userid
+             WHERE rip.reengagement = :reengagementid
+               AND u.deleted = 0
+          ORDER BY rip.completiontime ASC, u.lastname ASC, u.firstname ASC";
 
-    // Get the currently applied filters.
-    $filtersapplied = optional_param_array('unified-filters', [], PARAM_NOTAGS);
-    $filterwassubmitted = optional_param('unified-filter-submitted', 0, PARAM_BOOL);
+    $rips = $DB->get_records_sql($sql, array('reengagementid' => $reengagement->id));
 
-    // If they passed a role make sure they can view that role.
-    if ($roleid) {
-        $viewableroles = get_profile_roles($context);
-
-        // Check if the user can view this role.
-        if (array_key_exists($roleid, $viewableroles)) {
-            $filtersapplied[] = USER_FILTER_ROLE . ':' . $roleid;
+    if ($rips) {
+        // There are re-engagements in progress.
+        if (!in_array($reengagement->emailuser, array(REENGAGEMENT_EMAILUSER_NEVER, REENGAGEMENT_EMAILUSER_COMPLETION))) {
+            // Include an extra column to show the time the user will be emailed.
+            $showemailtime = true;
         } else {
-            $roleid = 0;
+            $showemailtime = false;
         }
-    }
-
-    // Default group ID.
-    $groupid = false;
-    $canaccessallgroups = has_capability('moodle/site:accessallgroups', $context);
-    if ($course->groupmode != NOGROUPS) {
-        if ($canaccessallgroups) {
-            // Change the group if the user can access all groups and has specified group in the URL.
-            if ($groupparam) {
-                $groupid = $groupparam;
-            }
-        } else {
-            // Otherwise, get the user's default group.
-            $groupid = groups_get_course_group($course, true);
-            if ($course->groupmode == SEPARATEGROUPS && !$groupid) {
-                // The user is not in the group so show message and exit.
-                echo $OUTPUT->notification(get_string('notingroup'));
-                echo $OUTPUT->footer();
-                exit;
-            }
+        print '<table class="reengagementlist">' . "\n";
+        print "<tr><th>" . get_string('user') . "</th>";
+        if ($showemailtime) {
+            print "<th>" . get_string('emailtime', 'reengagement') . '</th>';
         }
-    }
-    $hasgroupfilter = false;
-    $lastaccess = 0;
-    $searchkeywords = [];
-    $enrolid = 0;
-    $status = -1;
-    foreach ($filtersapplied as $filter) {
-        $filtervalue = explode(':', $filter, 2);
-        $value = null;
-        if (count($filtervalue) == 2) {
-            $key = clean_param($filtervalue[0], PARAM_INT);
-            $value = clean_param($filtervalue[1], PARAM_INT);
-        } else {
-            // Search string.
-            $key = USER_FILTER_STRING;
-            $value = clean_param($filtervalue[0], PARAM_TEXT);
-        }
-
-        switch ($key) {
-            case USER_FILTER_ENROLMENT:
-                $enrolid = $value;
-                break;
-            case USER_FILTER_GROUP:
-                $groupid = $value;
-                $hasgroupfilter = true;
-                break;
-            case USER_FILTER_LAST_ACCESS:
-                $lastaccess = $value;
-                break;
-            case USER_FILTER_ROLE:
-                $roleid = $value;
-                break;
-            case USER_FILTER_STATUS:
-                // We only accept active/suspended statuses.
-                if ($value == ENROL_USER_ACTIVE || $value == ENROL_USER_SUSPENDED) {
-                    $status = $value;
+        print "<th>" . get_string('completiontime', 'reengagement') . '</th>';
+        print "</tr>";
+        foreach ($rips as $rip) {
+            $fullname = fullname($rip);
+            print '<tr><td>' . $fullname . '</td>';
+            if ($showemailtime) {
+                if ($rip->emailsent > $reengagement->remindercount) {
+                    // Email has already been sent - don't show a time in the past.
+                    print '<td></td>';
+                } else {
+                    // Email will be sent, but hasn't been yet.
+                    print '<td>' . userdate($rip->emailtime, get_string('strftimedatetimeshort', 'langconfig')) . "</td>";
                 }
-                break;
-            default:
-                // Search string.
-                $searchkeywords[] = $value;
-                break;
+            }
+            if ($rip->completed) {
+                // User has completed the activity, but email hasn't been sent yet.
+                // Show an empty completion time.
+                print '<td></td>';
+            } else {
+                // User hasn't complted activity yet.
+                print '<td>' . userdate($rip->completiontime, get_string('strftimedatetimeshort', 'langconfig')) . "</td>";
+            }
+            print '</tr>';
         }
+        print "</table>\n";
+    } else {
+        echo $OUTPUT->box('No reengagements in progress');
     }
-
-    // If course supports groups we may need to set a default.
-    if ($groupid !== false) {
-        if ($canaccessallgroups) {
-            // User can access all groups, let them filter by whatever was selected.
-            $filtersapplied[] = USER_FILTER_GROUP . ':' . $groupid;
-        } else if (!$filterwassubmitted && $course->groupmode == VISIBLEGROUPS) {
-            // If we are in a course with visible groups and the user has not submitted anything and does not have
-            // access to all groups, then set a default group.
-            $filtersapplied[] = USER_FILTER_GROUP . ':' . $groupid;
-        } else if (!$hasgroupfilter && $course->groupmode != VISIBLEGROUPS) {
-            // The user can't access all groups and has not set a group filter in a course where the groups are not visible
-            // then apply a default group filter.
-            $filtersapplied[] = USER_FILTER_GROUP . ':' . $groupid;
-        } else if (!$hasgroupfilter) { // No need for the group id to be set.
-            $groupid = false;
-        }
-    }
-
-    if ($groupid && ($course->groupmode != SEPARATEGROUPS || $canaccessallgroups) && $groupid !== -1) {
-        $grouprenderer = $PAGE->get_renderer('core_group');
-        $groupdetailpage = new \core_group\output\group_details($groupid);
-        echo $grouprenderer->group_details($groupdetailpage);
-    }
-
-
-    // Render the unified filter.
-    $renderer = $PAGE->get_renderer('core_user');
-    echo $renderer->unified_filter($course, $context, $filtersapplied);
-
-    echo '<div class="userlist">';
-
-    // Should use this variable so that we don't break stuff every time a variable is added or changed.
-    $baseurl = new moodle_url('/mod/reengagement/view.php', array(
-        'contextid' => $context->id,
-        'id' => $cm->id,
-        'perpage' => $perpage));
-
-    $participanttable = new \mod_reengagement\table\participants($reengagement, $course->id, $groupid,
-        $lastaccess, $roleid, $enrolid, $status, $searchkeywords, $bulkoperations, $selectall);
-    $participanttable->define_baseurl($baseurl);
-
-    // Do this so we can get the total number of rows.
-    ob_start();
-    $participanttable->out($perpage, true);
-    $participanttablehtml = ob_get_contents();
-    ob_end_clean();
-
-    if ($bulkoperations) {
-        echo '<form action="bulkchange.php" method="post" id="participantsform">';
-        echo '<div>';
-        echo '<input type="hidden" name="id" value="' . $cm->id . '" />';
-        echo '<input type="hidden" name="sesskey" value="' . sesskey() . '" />';
-        echo '<input type="hidden" name="returnto" value="' . s($PAGE->url->out(false)) . '" />';
-    }
-
-    echo $participanttablehtml;
-
-    $PAGE->requires->js_call_amd('core_user/name_page_filter', 'init');
-
-    $perpageurl = clone($baseurl);
-    $perpageurl->remove_params('perpage');
-    if ($perpage == SHOW_ALL_PAGE_SIZE && $participanttable->totalrows > DEFAULT_PAGE_SIZE) {
-        $perpageurl->param('perpage', DEFAULT_PAGE_SIZE);
-        echo $OUTPUT->container(html_writer::link($perpageurl, get_string('showperpage', '', DEFAULT_PAGE_SIZE)),
-            array(), 'showall');
-
-    } else if ($participanttable->get_page_size() < $participanttable->totalrows) {
-        $perpageurl->param('perpage', SHOW_ALL_PAGE_SIZE);
-        echo $OUTPUT->container(html_writer::link($perpageurl, get_string('showall', '', $participanttable->totalrows)),
-            array(), 'showall');
-    }
-
-    if ($bulkoperations) {
-        echo '<br /><div class="buttons">';
-
-        if ($participanttable->get_page_size() < $participanttable->totalrows) {
-            $perpageurl = clone($baseurl);
-            $perpageurl->remove_params('perpage');
-            $perpageurl->param('perpage', SHOW_ALL_PAGE_SIZE);
-            $perpageurl->param('selectall', true);
-            $showalllink = $perpageurl;
-        } else {
-            $showalllink = false;
-        }
-
-        echo html_writer::start_tag('div', array('class' => 'btn-group'));
-        if ($participanttable->get_page_size() < $participanttable->totalrows) {
-            // Select all users, refresh page showing all users and mark them all selected.
-            $label = get_string('selectalluserswithcount', 'moodle', $participanttable->totalrows);
-            echo html_writer::tag('input', "", array('type' => 'button', 'id' => 'checkall', 'class' => 'btn btn-secondary',
-                'value' => $label, 'data-showallink' => $showalllink));
-            // Select all users, mark all users on page as selected.
-            echo html_writer::tag('input', "", array('type' => 'button', 'id' => 'checkallonpage', 'class' => 'btn btn-secondary',
-                'value' => get_string('selectallusersonpage')));
-        } else {
-            echo html_writer::tag('input', "", array('type' => 'button', 'id' => 'checkallonpage', 'class' => 'btn btn-secondary',
-                'value' => get_string('selectall')));
-        }
-
-        echo html_writer::tag('input', "", array('type' => 'button', 'id' => 'checknone', 'class' => 'btn btn-secondary',
-            'value' => get_string('deselectall')));
-        echo html_writer::end_tag('div');
-        $displaylist = array();
-        $displaylist['#messageselect'] = get_string('messageselectadd');
-
-        $pluginoptions = [];
-        $params = ['operation' => 'resetbyfirstcourseaccess'];
-        $url = new moodle_url('bulkchange.php', $params);
-        list ($periodcount, $period) = reengagement_get_readable_duration($reengagement->duration, true);
-        $duration = $periodcount ." " .$period;
-        $pluginoptions['resetbyfirstaccess'] = get_string('resetbyfirstaccess', 'mod_reengagement', $duration);
-        $pluginoptions['resetbyenrolment'] = get_string('resetbyenrolment', 'mod_reengagement', $duration);
-        $pluginoptions['resetbyspecificdate'] = get_string('resetbyspecificdate', 'mod_reengagement');
-
-        $name = get_string('resetcompletion', 'mod_reengagement');
-        $displaylist[] = [$name => $pluginoptions];
-
-        echo $OUTPUT->help_icon('withselectedusers', 'mod_reengagement');
-        echo html_writer::tag('label', get_string("withselectedusers"), array('for' => 'formactionid'));
-        echo html_writer::select($displaylist, 'formaction', '', array('' => 'choosedots'), array('id' => 'formactionid'));
-
-        echo '<noscript style="display:inline">';
-        echo '<div><input type="submit" value="'.get_string('ok').'" /></div>';
-        echo '</noscript>';
-        echo '</div></div>';
-        echo '</form>';
-
-        $options = new stdClass();
-        $options->courseid = $course->id;
-        $options->stateHelpIcon = $OUTPUT->help_icon('publishstate', 'notes');
-        $PAGE->requires->js_call_amd('core_user/participants', 'init', [$options]);
-    }
-
-    echo '</div>';  // Userlist.
-
 }
 
 
