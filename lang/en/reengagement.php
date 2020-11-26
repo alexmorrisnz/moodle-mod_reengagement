@@ -123,3 +123,6 @@ $string['suppresstarget_help'] = 'Use this dropdown to choose which activity sho
 $string['userandmanager'] = 'User and Manager(s)';
 $string['weeks'] = 'Weeks';
 $string['seconds'] = 'Seconds';
+$string['errornoid'] = 'You must specify a course_module ID or an instance ID';
+$string['errorreengagementnotvalid'] = 'This reengagement module is not enabled for your account.
+Please contact your administrator if you feel this is in error.';
