@@ -36,7 +36,7 @@ use core_user\table\participants_filterset;
  * @author     Alex Morris <alex.morris@catalyst.net.nz>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class reengagement_filterset extends participants_filterset {
+class reengagement_participants_filterset extends participants_filterset {
 
     /**
      * Get the required filters.
